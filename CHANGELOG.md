@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 增加英文首页、`README.zh-CN.md` 中文文档和项目截图。
 - 整理为可公开发布的 GitHub 项目结构。
 - 增加凭据、日志和本地数据库的忽略规则。
 - 增加 MIT 许可证、安全说明、贡献指南和 Windows CI。

@@ -19,12 +19,13 @@ def response_headers(**headers: str) -> str:
 
 class CodexWeeklyReaderTests(unittest.TestCase):
     def test_remote_snapshot_is_not_overwritten_by_old_log_fallback(self) -> None:
+        reset_at = int(time.time()) + 3600
         remote_snapshot = WeeklySnapshot(
             row_id=0,
             used_percent=78,
             remaining_percent=22,
             window_minutes=10080,
-            secondary_reset_at=1787205054,
+            secondary_reset_at=reset_at,
             limit_name="primary",
             source_ts=int(time.time()),
         )
@@ -44,7 +45,7 @@ class CodexWeeklyReaderTests(unittest.TestCase):
                         **{
                             "x-codex-primary-used-percent": "51",
                             "x-codex-primary-window-minutes": "10080",
-                            "x-codex-primary-reset-at": "1787205054",
+                            "x-codex-primary-reset-at": str(reset_at),
                         }
                     ),
                 ),

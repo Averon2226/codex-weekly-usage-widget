@@ -1,91 +1,102 @@
 # Codex Weekly Usage Widget
 
-Windows 桌面悬浮窗，用于显示本机 Codex 周额度剩余百分比、重置时间和最近一次成功更新的时间。
+A lightweight Windows desktop widget that shows your<br>
+remaining Codex weekly usage, reset time, and last update time.
 
-> **非官方工具声明**：本项目与 OpenAI 无隶属关系。它读取本机 Codex 登录态，并访问 Codex 当前使用的非公开额度接口；接口、认证格式或服务条款变化都可能导致功能失效。请勿用于访问他人账户、绕过权限或规避速率限制。
+[简体中文](README.zh-CN.md)
 
-## 功能
+<p align="center">
+  <img src="docs/screenshot.png" alt="Codex Weekly Usage Widget screenshot" width="420">
+</p>
 
-- 悬浮显示周额度剩余百分比。
-- 显示 `Reset` 重置时间和 `Update` 最近更新时间。
-- 优先读取当前额度接口，接口不可用时兼容本地日志。
-- 兼容新版 `primary` 周额度和旧版 `secondary` 周额度字段。
-- 超过 15 分钟没有新数据时显示 `--%`，避免旧数据被误认为实时值。
-- 左键拖动窗口，右键退出；可配置为 Windows 开机自启。
+## Features
 
-## 运行要求
+- Remaining weekly Codex usage
+- Reset time
+- Last successful update time
+- Lightweight floating desktop widget
+- No third-party Python dependencies
+- Windows startup support
 
-- Windows 10 或 Windows 11
-- Python 3.10 或更高版本，包含 `py` / `pyw` 启动器
-- 已登录并使用过 Codex
+> **Unofficial tool:** This project is not affiliated with OpenAI. It reads the
+> local Codex sign-in state and uses a private Codex usage endpoint. The endpoint,
+> authentication format, or applicable terms may change without notice.
 
-项目只使用 Python 标准库，不需要安装第三方依赖。
+## Installation
 
-## 快速开始
+Requirements:
 
-在项目目录打开 PowerShell：
+- Windows 10 or Windows 11
+- Python 3.10 or later, including the `py` / `pyw` launcher
+- An active Codex sign-in that has been used at least once
+
+This project uses only the Python standard library.
+
+Run from the project directory:
 
 ```powershell
 py -3 codex_weekly_widget.py
 ```
 
-也可以双击 `start_widget.bat`，它会用 `pyw` 在后台启动悬浮窗。
+Or double-click `start_widget.bat` to start the widget without opening a console window.
 
-## 开机自启
-
-在项目目录执行：
+### Windows startup
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install_startup.ps1
 ```
 
-脚本会在当前 Windows 用户的启动目录创建快捷方式。删除该快捷方式即可取消自启。
+The script creates a shortcut in the current user's Startup folder. Delete that shortcut to disable startup.
 
-## 数据来源和刷新策略
+## How it works
 
-1. 首选请求 `https://chatgpt.com/backend-api/wham/usage`。
-2. 请求使用本机 `%USERPROFILE%\.codex\auth.json` 中已有的登录态，不会把令牌发送到本项目的服务器。
-3. 当接口暂时不可用时，程序读取 `%USERPROFILE%\.codex\logs_2.sqlite` 中的脱敏额度响应记录。
-4. 界面每 2.5 秒刷新；额度接口最多每 30 秒请求一次。
-5. 没有新额度响应超过 15 分钟后，显示 `--%` 和最后更新时间。
+1. The widget first requests `https://chatgpt.com/backend-api/wham/usage`.
+2. It reads the existing local sign-in state from `%USERPROFILE%\.codex\auth.json`.
+3. If the endpoint is temporarily unavailable, it falls back to quota response records in `%USERPROFILE%\.codex\logs_2.sqlite`.
+4. It supports the current `primary` weekly bucket and the older `secondary` weekly bucket.
+5. The interface refreshes every 2.5 seconds; the usage endpoint is requested at most every 30 seconds.
+6. If no fresh quota response is seen for 15 minutes, the widget shows `--%` instead of presenting stale data as live.
 
-## 安全和隐私
+## Privacy and security
 
-- **绝不要**把 `auth.json`、Cookie、Token、日志数据库或包含账号信息的截图提交到 GitHub。
-- 仓库中的 `.gitignore` 已忽略常见凭据、数据库、日志和临时文件，但提交前仍应检查暂存区。
-- 项目不提供远程代理或账号存储服务，所有读取都发生在本机。
-- 额度接口不是公开稳定 API，升级 Codex 后可能需要更新解析逻辑。
-- 详情请阅读 [SECURITY.md](SECURITY.md) 和 [OpenAI 使用条款](https://openai.com/policies/terms-of-use/)。
+- The widget does not provide a proxy or account-storage service; reads happen locally.
+- Never commit `auth.json`, cookies, tokens, local databases, logs, or account screenshots.
+- The repository's `.gitignore` covers common credential and runtime files, but review the staged diff before publishing.
+- This project uses a private, non-stable endpoint and may stop working after a Codex update.
+- Read [SECURITY.md](SECURITY.md) and the [OpenAI Terms of Use](https://openai.com/policies/terms-of-use/) before distributing it.
 
-## 故障排查
+## Troubleshooting
 
-如果显示 `--%`：
+If the widget shows `--%`:
 
-1. 确认 Codex 已登录，并且近期确实产生过一次正常请求。
-2. 确认 `%USERPROFILE%\.codex\auth.json` 存在且登录态未过期。
-3. 检查网络、防火墙或代理是否阻止 `chatgpt.com`。
-4. 如果 Codex 刚升级，接口字段可能已变化；请提交脱敏后的错误现象，不要上传令牌或完整日志。
+1. Confirm that Codex is signed in and has made a normal request recently.
+2. Confirm `%USERPROFILE%\.codex\auth.json` exists and the sign-in state is valid.
+3. Check whether a firewall, proxy, or network policy blocks `chatgpt.com`.
+4. After a Codex update, the private endpoint fields may have changed. Share only a redacted error description in an issue—never upload tokens or complete logs.
 
-## 开发和测试
+## Development
+
+Run the unit tests:
 
 ```powershell
 py -3 -m unittest discover -s . -p "test_*.py" -v
 ```
 
-GitHub Actions 会在 Windows 和 Python 3.10–3.13 上运行编译检查与单元测试；CI 使用固定脱敏样例，不会访问真实 Codex 账号。
+GitHub Actions runs compilation and unit tests on Windows with Python 3.10–3.13 using fixed, redacted fixtures. CI never accesses a real Codex account.
 
-## 项目结构
+## Project structure
 
 ```text
-codex_weekly_widget.py       # 悬浮窗和额度读取逻辑
-test_codex_weekly_widget.py  # 单元测试
-start_widget.bat             # 手动启动
-install_startup.ps1          # 配置开机自启
-SECURITY.md                  # 安全说明
-CONTRIBUTING.md              # 贡献指南
-CHANGELOG.md                 # 更新记录
+codex_weekly_widget.py       # Widget and quota reader
+test_codex_weekly_widget.py  # Unit tests
+start_widget.bat             # Manual launcher
+install_startup.ps1          # Startup shortcut setup
+docs/screenshot.png          # README screenshot
+SECURITY.md                  # Security policy
+CONTRIBUTING.md              # Contribution guide
+CHANGELOG.md                 # Change history
 ```
 
-## 许可证
+## License
 
-本项目采用 [MIT License](LICENSE)。
+This project is released under the [MIT License](LICENSE).
