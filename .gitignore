@@ -1,0 +1,36 @@
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments and local tooling
+.venv/
+venv/
+env/
+.python-version
+
+# Runtime databases, logs, and temporary files
+*.sqlite
+*.sqlite-*
+*.db
+*.log
+*.tmp
+logs/
+artifacts/
+screenshots/
+
+# Local credentials and configuration
+auth.json
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Local-only documents that are unrelated to this project
+README_codex_weekly_widget.md
+Powerpoint安装本地加载项xml步骤（测试可用）.md
