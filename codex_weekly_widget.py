@@ -510,7 +510,7 @@ class WeeklyWidget:
             color = "#e9f7ef"
         self.top_label.config(text=f"{rem}%", fg=color)
         self.bottom_label.config(
-            text=f"Reset {self._format_reset_text(snapshot)}  Update {self._format_source_time(snapshot)}",
+            text=f"Resets {self._format_reset_text(snapshot)}  Updated {self._format_source_time(snapshot)}",
             fg="#66dd66",
         )
 

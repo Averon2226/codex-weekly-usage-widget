@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 将悬浮窗标签更新为 `Resets` 和 `Updated`。
 - 增加英文首页、`README.zh-CN.md` 中文文档和项目截图。
 - 整理为可公开发布的 GitHub 项目结构。
 - 增加凭据、日志和本地数据库的忽略规则。
