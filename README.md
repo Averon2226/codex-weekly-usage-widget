@@ -6,7 +6,7 @@ remaining Codex weekly usage, reset time, and last update time.
 [简体中文](README.zh-CN.md)
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Codex Weekly Usage Widget screenshot" width="420">
+  <img src="github.jpg" alt="Codex Weekly Usage Widget screenshot" width="420">
 </p>
 
 ## Features
@@ -91,7 +91,7 @@ codex_weekly_widget.py       # Widget and quota reader
 test_codex_weekly_widget.py  # Unit tests
 start_widget.bat             # Manual launcher
 install_startup.ps1          # Startup shortcut setup
-docs/screenshot.png          # README screenshot
+github.jpg                   # README screenshot
 SECURITY.md                  # Security policy
 CONTRIBUTING.md              # Contribution guide
 CHANGELOG.md                 # Change history
@@ -100,3 +100,4 @@ CHANGELOG.md                 # Change history
 ## License
 
 This project is released under the [MIT License](LICENSE).
+

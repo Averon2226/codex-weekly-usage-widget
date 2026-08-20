@@ -5,7 +5,7 @@
 [English](README.md)
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Codex 周额度悬浮窗截图" width="420">
+  <img src="github.jpg" alt="Codex 周额度悬浮窗截图" width="420">
 </p>
 
 > **非官方工具声明：** 本项目与 OpenAI 无隶属关系。程序读取本机 Codex 登录态，并使用 Codex 当前的非公开额度接口；接口、认证格式或适用条款变化后，功能可能失效。
@@ -86,7 +86,7 @@ codex_weekly_widget.py       # 悬浮窗和额度读取逻辑
 test_codex_weekly_widget.py  # 单元测试
 start_widget.bat             # 手动启动
 install_startup.ps1          # 配置开机自启
-docs/screenshot.png          # README 截图
+github.jpg                   # README 截图
 SECURITY.md                  # 安全说明
 CONTRIBUTING.md              # 贡献指南
 CHANGELOG.md                 # 更新记录
@@ -95,3 +95,4 @@ CHANGELOG.md                 # 更新记录
 ## 许可证
 
 本项目采用 [MIT License](LICENSE)。
+
