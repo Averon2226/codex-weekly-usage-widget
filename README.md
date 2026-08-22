@@ -50,11 +50,11 @@ The script creates a shortcut in the current user's Startup folder. Delete that 
 
 ## How it works
 
-1. The widget first requests `https://chatgpt.com/backend-api/wham/usage`.
-2. It reads the existing local sign-in state from `%USERPROFILE%\.codex\auth.json`.
-3. If the endpoint is temporarily unavailable, it falls back to quota response records in `%USERPROFILE%\.codex\logs_2.sqlite`.
+1. The widget first asks the local Codex app-server for `account/rateLimits/read`.
+2. If the app-server is unavailable, it requests `https://chatgpt.com/backend-api/wham/usage` using the existing local sign-in state from `%USERPROFILE%\.codex\auth.json`.
+3. If both live sources are unavailable, it falls back to quota response records in `%USERPROFILE%\.codex\logs_2.sqlite`.
 4. It supports the current `primary` weekly bucket and the older `secondary` weekly bucket.
-5. The interface refreshes every 2.5 seconds; the usage endpoint is requested at most every 30 seconds.
+5. The interface refreshes every 2.5 seconds; live quota sources are requested at most every 30 seconds.
 6. If no fresh quota response is seen for 15 minutes, the widget shows `--%` instead of presenting stale data as live.
 
 ## Privacy and security
@@ -70,9 +70,10 @@ The script creates a shortcut in the current user's Startup folder. Delete that 
 If the widget shows `--%`:
 
 1. Confirm that Codex is signed in and has made a normal request recently.
-2. Confirm `%USERPROFILE%\.codex\auth.json` exists and the sign-in state is valid.
-3. Check whether a firewall, proxy, or network policy blocks `chatgpt.com`.
-4. After a Codex update, the private endpoint fields may have changed. Share only a redacted error description in an issue—never upload tokens or complete logs.
+2. Confirm the `codex` command is installed and available on `PATH`, so the app-server can start.
+3. Confirm `%USERPROFILE%\.codex\auth.json` exists and the sign-in state is valid.
+4. Check whether a firewall, proxy, or network policy blocks `chatgpt.com`.
+5. After a Codex update, the private endpoint or app-server fields may have changed. Share only a redacted error description in an issue—never upload tokens or complete logs.
 
 ## Development
 
@@ -100,4 +101,3 @@ CHANGELOG.md                 # Change history
 ## License
 
 This project is released under the [MIT License](LICENSE).
-

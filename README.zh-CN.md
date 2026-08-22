@@ -47,11 +47,11 @@ powershell -ExecutionPolicy Bypass -File .\install_startup.ps1
 
 ## 工作原理
 
-1. 程序优先请求 `https://chatgpt.com/backend-api/wham/usage`。
-2. 请求使用本机 `%USERPROFILE%\.codex\auth.json` 中已有的登录态。
-3. 当额度接口暂时不可用时，程序回退读取 `%USERPROFILE%\.codex\logs_2.sqlite` 中的额度响应记录。
+1. 程序优先通过本机 Codex app-server 的 `account/rateLimits/read` 获取额度。
+2. app-server 不可用时，程序使用本机 `%USERPROFILE%\.codex\auth.json` 中的登录态请求 `https://chatgpt.com/backend-api/wham/usage`。
+3. 两个实时来源都不可用时，程序回退读取 `%USERPROFILE%\.codex\logs_2.sqlite` 中的额度响应记录。
 4. 同时兼容新版 `primary` 周额度字段和旧版 `secondary` 周额度字段。
-5. 界面每 2.5 秒刷新，额度接口最多每 30 秒请求一次。
+5. 界面每 2.5 秒刷新，实时额度来源最多每 30 秒请求一次。
 6. 超过 15 分钟没有新的额度响应时，程序显示 `--%`，避免把旧数据误认为实时数据。
 
 ## 隐私与安全
@@ -67,9 +67,10 @@ powershell -ExecutionPolicy Bypass -File .\install_startup.ps1
 如果界面显示 `--%`：
 
 1. 确认 Codex 已登录，并且近期产生过一次正常请求。
-2. 确认 `%USERPROFILE%\.codex\auth.json` 存在且登录态未过期。
-3. 检查防火墙、代理或网络策略是否阻止 `chatgpt.com`。
-4. 如果 Codex 刚升级，私有接口字段可能已经变化。提交 Issue 时只提供脱敏后的现象，不要上传 Token 或完整日志。
+2. 确认 `codex` 命令已安装并在 `PATH` 中，以便程序启动 app-server。
+3. 确认 `%USERPROFILE%\.codex\auth.json` 存在且登录态未过期。
+4. 检查防火墙、代理或网络策略是否阻止 `chatgpt.com`。
+5. 如果 Codex 刚升级，私有接口或 app-server 字段可能已经变化。提交 Issue 时只提供脱敏后的现象，不要上传 Token 或完整日志。
 
 ## 开发与测试
 
@@ -95,4 +96,3 @@ CHANGELOG.md                 # 更新记录
 ## 许可证
 
 本项目采用 [MIT License](LICENSE)。
-

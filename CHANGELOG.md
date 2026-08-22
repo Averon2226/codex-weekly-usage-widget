@@ -10,3 +10,4 @@
 - 保留新版 `primary` 周额度和旧版 `secondary` 周额度解析兼容。
 - 修复远程额度快照被旧日志回退值覆盖的问题。
 - 过期数据改为显示 `--%`，避免把旧值误认为实时额度。
+- 优先通过 Codex app-server 的 `account/rateLimits/read` 获取实时额度，并保留 HTTP 与本地日志回退。

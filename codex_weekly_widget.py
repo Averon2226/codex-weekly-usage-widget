@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Codex Weekly Remaining Widget (Windows 11)
 """
@@ -10,11 +10,16 @@ from ctypes import wintypes
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import queue
 import re
+import shutil
 import sqlite3
+import subprocess
 import time
 import tkinter as tk
+import threading
 import urllib.error
 import urllib.request
 
@@ -24,6 +29,7 @@ AUTH_PATH = Path.home() / ".codex" / "auth.json"
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 POLL_MS = 2500
 USAGE_POLL_SECONDS = 30
+USAGE_RETRY_SECONDS = 10
 MARGIN_X = 14
 MARGIN_Y = 10
 WEEKLY_WINDOW_MINUTES = 10080  # 7 days
@@ -41,6 +47,191 @@ HEADER_INT_RE = re.compile(
     r'"x-codex-(primary|secondary)-(used-percent|window-minutes|reset-at)"\s*:'
     r'\s*"?(\d+)"?'
 )
+
+
+class AppServerUnavailable(RuntimeError):
+    """The local Codex app-server could not answer a rate-limit request."""
+
+
+class AppServerRateLimitClient:
+    """Read the current rate-limit snapshot through Codex's local app-server.
+
+    Recent Codex builds publish ``account/rateLimits/read`` over the app-server
+    protocol.  Keeping this connection alive avoids depending on a particular
+    private HTTP response shape and avoids starting a new Codex process for every
+    refresh tick.
+    """
+
+    REQUEST_TIMEOUT_SECONDS = 8.0
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._responses: queue.Queue[object] = queue.Queue()
+        self._process: subprocess.Popen[str] | None = None
+        self._request_id = 0
+        self._initialized = False
+
+    @staticmethod
+    def _find_command() -> str | None:
+        # ``codex.cmd`` is the normal Windows npm launcher.  The executable
+        # fallback also covers the desktop-bundled CLI and test environments.
+        for candidate in ("codex.cmd", "codex.exe", "codex"):
+            command = shutil.which(candidate)
+            if command:
+                return command
+        return None
+
+    @staticmethod
+    def _read_stdout(
+        process: subprocess.Popen[str],
+        responses: queue.Queue[object],
+    ) -> None:
+        stdout = process.stdout
+        if stdout is None:
+            responses.put(None)
+            return
+        try:
+            for line in stdout:
+                try:
+                    message = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(message, dict):
+                    responses.put(message)
+        finally:
+            responses.put(None)
+
+    def _stop_locked(self) -> None:
+        process = self._process
+        self._process = None
+        self._initialized = False
+        if process is None:
+            return
+        try:
+            if process.stdin is not None:
+                process.stdin.close()
+        except (OSError, ValueError):
+            pass
+        try:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=1.0)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                process.kill()
+            except OSError:
+                pass
+
+    def _send_locked(self, message: dict[str, object]) -> None:
+        process = self._process
+        if process is None or process.stdin is None or process.poll() is not None:
+            raise AppServerUnavailable("Codex app-server is not running")
+        process.stdin.write(json.dumps(message, separators=(",", ":")) + "\n")
+        process.stdin.flush()
+
+    def _wait_for_response_locked(self, request_id: int) -> dict[str, object]:
+        deadline = time.monotonic() + self.REQUEST_TIMEOUT_SECONDS
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AppServerUnavailable("Codex app-server request timed out")
+            try:
+                message = self._responses.get(timeout=min(remaining, 0.5))
+            except queue.Empty:
+                continue
+            if message is None:
+                raise AppServerUnavailable("Codex app-server exited unexpectedly")
+            if not isinstance(message, dict) or message.get("id") != request_id:
+                # Notifications (including rate-limit updates) are asynchronous
+                # and can arrive before the response we are waiting for.
+                continue
+            error = message.get("error")
+            if error:
+                raise AppServerUnavailable(f"Codex app-server error: {error}")
+            result = message.get("result")
+            if not isinstance(result, dict):
+                raise AppServerUnavailable("Codex app-server returned an invalid result")
+            return result
+
+    def _start_locked(self) -> None:
+        command = self._find_command()
+        if command is None:
+            raise AppServerUnavailable("Codex CLI was not found on PATH")
+
+        creation_kwargs: dict[str, object] = {}
+        if os.name == "nt":
+            creation_kwargs["creationflags"] = getattr(
+                subprocess, "CREATE_NO_WINDOW", 0
+            )
+        try:
+            process = subprocess.Popen(
+                [command, "app-server", "--stdio"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                **creation_kwargs,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise AppServerUnavailable(f"Unable to start Codex app-server: {exc}") from exc
+
+        self._process = process
+        self._responses = queue.Queue()
+        threading.Thread(
+            target=self._read_stdout,
+            args=(process, self._responses),
+            daemon=True,
+            name="codex-app-server-reader",
+        ).start()
+
+        self._request_id += 1
+        initialize_id = self._request_id
+        try:
+            self._send_locked(
+                {
+                    "id": initialize_id,
+                    "method": "initialize",
+                    "params": {
+                        "clientInfo": {
+                            "name": "codex-weekly-widget",
+                            "version": "1.0",
+                        },
+                        "capabilities": {"experimentalApi": True},
+                    },
+                }
+            )
+            self._wait_for_response_locked(initialize_id)
+            self._send_locked({"method": "initialized", "params": {}})
+            self._initialized = True
+        except Exception:
+            self._stop_locked()
+            raise
+
+    def read_rate_limits(self) -> dict[str, object]:
+        with self._lock:
+            try:
+                if not self._initialized:
+                    self._start_locked()
+                self._request_id += 1
+                request_id = self._request_id
+                self._send_locked(
+                    {
+                        "id": request_id,
+                        "method": "account/rateLimits/read",
+                        "params": None,
+                    }
+                )
+                return self._wait_for_response_locked(request_id)
+            except Exception:
+                self._stop_locked()
+                raise
+
+    def close(self) -> None:
+        with self._lock:
+            self._stop_locked()
 
 
 @dataclass
@@ -62,6 +253,73 @@ class CodexWeeklyReader:
         self._remote_snapshot: WeeklySnapshot | None = None
         self._last_history_scan_ts = 0.0
         self._last_usage_fetch_ts = 0.0
+        self._app_server = AppServerRateLimitClient()
+
+    @staticmethod
+    def _as_int(value: object) -> int | None:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return int(float(value))
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    @classmethod
+    def _parse_rate_limit_snapshot(
+        cls,
+        source_ts: int,
+        rate_limit: dict[str, object],
+    ) -> WeeklySnapshot | None:
+        """Parse either the HTTP snake_case or app-server camelCase shape."""
+        windows: list[tuple[str, object]] = []
+        for limit_name in ("primary", "secondary"):
+            window = rate_limit.get(f"{limit_name}_window")
+            if window is None:
+                window = rate_limit.get(limit_name)
+            windows.append((limit_name, window))
+
+        for limit_name, window_value in windows:
+            if not isinstance(window_value, dict):
+                continue
+
+            duration_minutes = cls._as_int(window_value.get("windowDurationMins"))
+            if duration_minutes is None:
+                window_seconds = cls._as_int(window_value.get("limit_window_seconds"))
+                if window_seconds is not None and window_seconds > 0:
+                    duration_minutes = window_seconds // 60
+            if duration_minutes != WEEKLY_WINDOW_MINUTES:
+                continue
+
+            used = cls._as_int(
+                window_value.get("used_percent", window_value.get("usedPercent"))
+            )
+            if used is None:
+                continue
+
+            reset_at = cls._as_int(
+                window_value.get("reset_at", window_value.get("resetsAt"))
+            )
+            if not reset_at or reset_at <= 0:
+                reset_after = cls._as_int(
+                    window_value.get(
+                        "reset_after_seconds",
+                        window_value.get("resetAfterSeconds"),
+                    )
+                )
+                reset_at = source_ts + reset_after if reset_after and reset_after > 0 else None
+
+            used = max(0, min(100, used))
+            return WeeklySnapshot(
+                row_id=0,
+                used_percent=used,
+                remaining_percent=100 - used,
+                window_minutes=duration_minutes,
+                secondary_reset_at=reset_at,
+                limit_name=limit_name,
+                source_ts=source_ts,
+            )
+
+        return None
 
     @staticmethod
     def _parse_usage_payload(
@@ -72,85 +330,89 @@ class CodexWeeklyReader:
         if not isinstance(rate_limit, dict):
             return None
 
-        windows = (
-            ("primary", rate_limit.get("primary_window")),
-            ("secondary", rate_limit.get("secondary_window")),
-        )
-        for limit_name, window in windows:
-            if not isinstance(window, dict):
-                continue
-            try:
-                window_seconds = int(window.get("limit_window_seconds", 0))
-                if window_seconds != WEEKLY_WINDOW_MINUTES * 60:
-                    continue
-                used = int(float(window["used_percent"]))
-            except (KeyError, TypeError, ValueError):
-                continue
+        return CodexWeeklyReader._parse_rate_limit_snapshot(source_ts, rate_limit)
 
-            reset_at_value = window.get("reset_at")
-            try:
-                reset_at = int(reset_at_value) if reset_at_value else 0
-            except (TypeError, ValueError):
-                reset_at = 0
-            if reset_at <= 0:
-                try:
-                    reset_after = int(window.get("reset_after_seconds", 0))
-                except (TypeError, ValueError):
-                    reset_after = 0
-                reset_at = source_ts + max(0, reset_after)
+    @classmethod
+    def _parse_app_server_payload(
+        cls,
+        source_ts: int,
+        payload: dict[str, object],
+    ) -> WeeklySnapshot | None:
+        rate_limit = payload.get("rateLimits")
+        if isinstance(rate_limit, dict):
+            snapshot = cls._parse_rate_limit_snapshot(source_ts, rate_limit)
+            if snapshot is not None:
+                return snapshot
 
-            used = max(0, min(100, used))
-            return WeeklySnapshot(
-                row_id=0,
-                used_percent=used,
-                remaining_percent=100 - used,
-                window_minutes=WEEKLY_WINDOW_MINUTES,
-                secondary_reset_at=reset_at,
-                limit_name=limit_name,
-                source_ts=source_ts,
+        by_limit_id = payload.get("rateLimitsByLimitId")
+        if not isinstance(by_limit_id, dict):
+            return None
+        rate_limit = by_limit_id.get("codex")
+        if not isinstance(rate_limit, dict):
+            rate_limit = next(
+                (value for value in by_limit_id.values() if isinstance(value, dict)),
+                None,
             )
+        if not isinstance(rate_limit, dict):
+            return None
+        return cls._parse_rate_limit_snapshot(source_ts, rate_limit)
 
-        return None
+    def _fetch_app_server_usage(self, source_ts: int) -> WeeklySnapshot | None:
+        payload = self._app_server.read_rate_limits()
+        return self._parse_app_server_payload(source_ts, payload)
+
+    def _fetch_http_usage(self, source_ts: int) -> WeeklySnapshot | None:
+        auth = json.loads(AUTH_PATH.read_text(encoding="utf-8"))
+        tokens = auth.get("tokens", {})
+        if not isinstance(tokens, dict):
+            return None
+        access_token = tokens.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            return None
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {access_token}",
+            "User-Agent": "CodexWeeklyWidget/1.0",
+        }
+        account_id = tokens.get("account_id")
+        if account_id:
+            headers["ChatGPT-Account-ID"] = str(account_id)
+
+        request = urllib.request.Request(USAGE_URL, headers=headers, method="GET")
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read(256 * 1024).decode("utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        return self._parse_usage_payload(source_ts, payload)
 
     def _fetch_remote_usage(self, now: float) -> WeeklySnapshot | None:
         if now - self._last_usage_fetch_ts < USAGE_POLL_SECONDS:
             return None
         self._last_usage_fetch_ts = now
 
-        try:
-            auth = json.loads(AUTH_PATH.read_text(encoding="utf-8"))
-            tokens = auth.get("tokens", {})
-            if not isinstance(tokens, dict):
-                return None
-            access_token = tokens.get("access_token")
-            if not isinstance(access_token, str) or not access_token:
-                return None
+        source_ts = int(now)
+        fetchers = (self._fetch_app_server_usage, self._fetch_http_usage)
+        for fetcher in fetchers:
+            try:
+                snapshot = fetcher(source_ts)
+            except (
+                AppServerUnavailable,
+                OSError,
+                ValueError,
+                TypeError,
+                json.JSONDecodeError,
+                urllib.error.URLError,
+                subprocess.SubprocessError,
+            ):
+                continue
+            if snapshot is not None:
+                return snapshot
 
-            headers = {
-                "Accept": "application/json",
-                "Authorization": f"Bearer {access_token}",
-                "User-Agent": "CodexWeeklyWidget/1.0",
-            }
-            account_id = tokens.get("account_id")
-            if account_id:
-                headers["ChatGPT-Account-ID"] = str(account_id)
-
-            request = urllib.request.Request(USAGE_URL, headers=headers, method="GET")
-            with urllib.request.urlopen(request, timeout=5) as response:
-                payload = json.loads(response.read(256 * 1024).decode("utf-8"))
-            if not isinstance(payload, dict):
-                return None
-            return self._parse_usage_payload(int(now), payload)
-        except (
-            OSError,
-            ValueError,
-            TypeError,
-            json.JSONDecodeError,
-            urllib.error.URLError,
-        ):
-            # Keep the last valid local-log snapshot when the network or token
-            # is unavailable.  The stale indicator prevents it looking live.
-            return None
+        # Keep the last valid local-log snapshot when the network, token, or
+        # app-server is unavailable.  The stale indicator prevents it looking live.
+        self._last_usage_fetch_ts = now - max(0, USAGE_POLL_SECONDS - USAGE_RETRY_SECONDS)
+        return None
 
     @staticmethod
     def _parse_snapshot(row_id: int, body: str) -> WeeklySnapshot | None:
@@ -299,6 +561,9 @@ class CodexWeeklyReader:
 
         return self._current_snapshot()
 
+    def close(self) -> None:
+        self._app_server.close()
+
 
 class RECT(ctypes.Structure):
     _fields_ = [
@@ -399,7 +664,8 @@ class WeeklyWidget:
         self._bind_drag(self.top_label)
         self._bind_drag(self.bottom_label)
 
-        self.root.bind("<Button-3>", lambda _e: self.root.destroy())
+        self.root.bind("<Button-3>", lambda _e: self.close())
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.bind("<Map>", lambda _e: self._enforce_topmost())
         self.root.bind("<FocusOut>", lambda _e: self._enforce_topmost())
 
@@ -427,6 +693,10 @@ class WeeklyWidget:
         self.root.geometry(f"+{x}+{y}")
         self._manual_position = (x, y)
         self._drag_origin = (event.x_root, event.y_root)
+
+    def close(self) -> None:
+        self.reader.close()
+        self.root.destroy()
 
     def _auto_position(self) -> tuple[int, int]:
         self.root.update_idletasks()

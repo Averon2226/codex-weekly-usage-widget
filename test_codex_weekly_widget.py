@@ -86,6 +86,67 @@ class CodexWeeklyReaderTests(unittest.TestCase):
         self.assertEqual(snapshot.limit_name, "primary")
         self.assertEqual(snapshot.source_ts, 1786760473)
 
+    def test_reads_current_app_server_rate_limits_payload(self) -> None:
+        payload = {
+            "rateLimits": {
+                "limitId": "codex",
+                "primary": {
+                    "usedPercent": 21,
+                    "windowDurationMins": 10080,
+                    "resetsAt": 1787810232,
+                },
+                "secondary": None,
+            },
+            "rateLimitsByLimitId": {},
+        }
+
+        snapshot = CodexWeeklyReader._parse_app_server_payload(1787300000, payload)
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.remaining_percent, 79)
+        self.assertEqual(snapshot.limit_name, "primary")
+        self.assertEqual(snapshot.secondary_reset_at, 1787810232)
+
+    def test_reads_app_server_limit_id_fallback(self) -> None:
+        payload = {
+            "rateLimitsByLimitId": {
+                "codex": {
+                    "primary": {
+                        "usedPercent": 34,
+                        "windowDurationMins": 10080,
+                        "resetsAt": 1787810232,
+                    }
+                }
+            }
+        }
+
+        snapshot = CodexWeeklyReader._parse_app_server_payload(1787300000, payload)
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.remaining_percent, 66)
+
+    def test_prefers_app_server_for_remote_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            reader = CodexWeeklyReader(Path(tmp_dir) / "missing.sqlite")
+            with patch.object(
+                reader._app_server,
+                "read_rate_limits",
+                return_value={
+                    "rateLimits": {
+                        "primary": {
+                            "usedPercent": 12,
+                            "windowDurationMins": 10080,
+                            "resetsAt": int(time.time()) + 3600,
+                        }
+                    }
+                },
+            ):
+                snapshot = reader._fetch_remote_usage(time.time())
+            reader.close()
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.remaining_percent, 88)
+
     def test_reads_current_primary_weekly_bucket(self) -> None:
         body = response_headers(
             **{
